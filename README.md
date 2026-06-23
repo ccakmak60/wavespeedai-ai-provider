@@ -1,71 +1,74 @@
 # AI SDK - WaveSpeedAI Provider
 
-The **WaveSpeedAI provider** for the [AI SDK](https://ai-sdk.dev/docs) enables integration with the [WaveSpeedAI API](https://wavespeed.ai/) for image generation.
+Unofficial [AI SDK](https://ai-sdk.dev) provider for [WaveSpeedAI](https://wavespeed.ai/).
+
+Supports AI SDK v7 provider registry usage for WaveSpeed image, video, speech, transcription, OpenAI-compatible LLMs, file uploads, and generic task execution.
 
 ## Setup
 
-The WaveSpeedAI provider is available in the `wavespeedai-ai-provider` package. You can install it with
-
 ```bash
-npm install wavespeedai-ai-provider@latest
+npm install wavespeedai-ai-provider@latest ai@beta
 ```
-
-## Usage
-
-To use the WaveSpeedAI provider, you'll need to set up your API token:
 
 ```bash
 WAVESPEEDAI_API_TOKEN="your-api-token-here"
 ```
 
-Then import and use the provider for image generation:
+## Provider registry
 
 ```ts
+import { createProviderRegistry, experimental_generateVideo as generateVideo, generateImage, generateText } from "ai";
 import { wavespeedai } from "wavespeedai-ai-provider";
-import { experimental_generateImage as generateImage } from "ai";
+
+const registry = createProviderRegistry({ wavespeedai });
 
 const { image } = await generateImage({
-  model: wavespeedai.image("model-id"), // Replace with actual WaveSpeedAI model ID
-  prompt: "A detailed description of the image you want to generate",
+  model: registry.imageModel("wavespeedai:wavespeed-ai/flux-dev"),
+  prompt: "A cat working as a café barista",
 });
 
-// Save the generated image
-const filename = `image-${Date.now()}.png`;
-fs.writeFileSync(filename, image.uint8Array);
-console.log(`Image saved to ${filename}`);
-```
-
-If you need to pass additional inputs to the model besides the prompt, use the `providerOptions.wavespeedai` property:
-
-```ts
-const { image } = await generateImage({
-  model: wavespeedai.image("google/nano-banana-pro/text-to-image"),
-  prompt: "A detailed cat working as a café barista",
+const { video } = await generateVideo({
+  model: registry.videoModel("wavespeedai:alibaba/wan-2.6/image-to-video"),
+  prompt: "The cat slowly turns its head and blinks",
   providerOptions: {
     wavespeedai: {
-      customInput: "this model needs this extra field",
+      image: "https://your-uploaded-image.jpg",
+      duration: 5,
+      resolution: "720p",
     },
   },
 });
+
+const { text } = await generateText({
+  model: registry.languageModel("wavespeedai:anthropic/claude-opus-4.7"),
+  prompt: "Summarize WaveSpeedAI in one sentence.",
+});
 ```
 
-## Configuration
-
-You can also create a custom provider instance with specific settings:
+## Direct provider usage
 
 ```ts
 import { createWaveSpeedAI } from "wavespeedai-ai-provider";
 
-const wavespeedaiProvider = createWaveSpeedAI({
-  apiToken: process.env.WAVESPEEDAI_API_TOKEN, // Optional if using environment variables
-  baseURL: "https://api.wavespeed.ai/api/v3", // Optional, uses default if not provided
-  headers: {}, // Optional additional headers
-  fetch: undefined, // Optional custom fetch implementation
+const wavespeedai = createWaveSpeedAI({
+  apiToken: process.env.WAVESPEEDAI_API_TOKEN,
+  baseURL: "https://api.wavespeed.ai/api/v3",
+  llmBaseURL: "https://llm.wavespeed.ai/v1",
 });
 
-// Use the custom provider instance
-const { image } = await generateImage({
-  model: wavespeedaiProvider.image("model-id"),
-  prompt: "Your prompt here",
+const prediction = await wavespeedai.run("wavespeed-ai/infinitetalk", {
+  image: "https://your-face-image.jpg",
+  audio: "https://your-audio.mp3",
+  resolution: "480p",
 });
 ```
+
+Use `providerOptions.wavespeedai` for model-specific request fields from WaveSpeed's model docs.
+
+## Refresh model catalog
+
+```bash
+WAVESPEEDAI_API_TOKEN=... bun run update-models
+```
+
+Generated model IDs are autocomplete only. Free-form strings still work so new WaveSpeed models are usable before the catalog is refreshed.

@@ -1,24 +1,86 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createProviderRegistry } from "ai";
 import { createWaveSpeedAI } from "./wavespeedai-provider";
 import { WaveSpeedAIImageModel } from "./wavespeedai-image-model";
+import { WaveSpeedAIVideoModel } from "./wavespeedai-video-model";
 
 describe("createWaveSpeedAI", () => {
-  it("creates a provider with required settings", () => {
+  it("creates registry-compatible image and video models", () => {
     const provider = createWaveSpeedAI({ apiToken: "test-token" });
-    expect(provider.image).toBeDefined();
+    const registry = createProviderRegistry({ wavespeedai: provider });
+
+    expect(registry.imageModel("wavespeedai:wavespeed-ai/flux-dev")).toBeInstanceOf(WaveSpeedAIImageModel);
+    expect(registry.videoModel("wavespeedai:alibaba/wan-2.6/image-to-video")).toBeInstanceOf(WaveSpeedAIVideoModel);
   });
 
-  it("creates a provider with custom settings", () => {
-    const provider = createWaveSpeedAI({
-      apiToken: "test-token",
-      baseURL: "https://custom.wavespeedai.com",
+  it("exposes generic run", () => {
+    const provider = createWaveSpeedAI({ apiToken: "test-token" });
+
+    expect(provider.run).toBeTypeOf("function");
+  });
+
+  it("runs image generation through WaveSpeed task flow", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: "pred_1" } }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ data: { id: "pred_1", status: "completed", outputs: ["https://cdn.example/image.png"] } }),
+          {
+            status: 200,
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+
+    const provider = createWaveSpeedAI({ apiToken: "test-token", fetch, _internal: { sleep: async () => undefined } });
+    const result = await provider.imageModel("wavespeed-ai/flux-dev").doGenerate({
+      prompt: "cat",
+      n: 1,
+      size: "1024x1024",
+      aspectRatio: undefined,
+      seed: 1,
+      files: undefined,
+      mask: undefined,
+      providerOptions: { wavespeedai: { guidance_scale: 3.5 } },
     });
-    expect(provider.image).toBeDefined();
+
+    expect(result.images[0]).toEqual(new Uint8Array([1, 2, 3]));
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      prompt: "cat",
+      size: "1024*1024",
+      seed: 1,
+      num_images: 1,
+      guidance_scale: 3.5,
+    });
   });
 
-  it("creates an image model instance", () => {
-    const provider = createWaveSpeedAI({ apiToken: "test-token" });
-    const model = provider.image("google/nano-banana-pro/edit-ultra");
-    expect(model).toBeInstanceOf(WaveSpeedAIImageModel);
+  it("runs video generation through WaveSpeed task flow", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: "pred_2" } }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ data: { id: "pred_2", status: "completed", outputs: ["https://cdn.example/video.mp4"] } }),
+          {
+            status: 200,
+          },
+        ),
+      );
+
+    const provider = createWaveSpeedAI({ apiToken: "test-token", fetch, _internal: { sleep: async () => undefined } });
+    const result = await provider.videoModel("alibaba/wan-2.6/image-to-video").doGenerate({
+      prompt: "cat walks",
+      n: 1,
+      aspectRatio: "16:9",
+      resolution: "1280x720",
+      duration: 5,
+      fps: undefined,
+      seed: 1,
+      image: { type: "url", url: "https://cdn.example/cat.png" },
+      providerOptions: {},
+    });
+
+    expect(result.videos).toEqual([{ type: "url", url: "https://cdn.example/video.mp4", mediaType: "video/mp4" }]);
   });
 });
