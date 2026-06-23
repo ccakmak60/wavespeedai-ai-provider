@@ -3,17 +3,11 @@ import { WaveSpeedAIFiles } from "./wavespeedai-files";
 
 describe("WaveSpeedAIFiles", () => {
   it("uploads binary files and returns a provider reference", async () => {
-    const fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: { url: "https://cdn.example/upload.png" } }), {
-        status: 200,
-      }),
-    );
+    const taskClient = { uploadFile: vi.fn().mockResolvedValue({ url: "https://cdn.example/upload.png" }) };
 
     const files = new WaveSpeedAIFiles({
       provider: "wavespeedai",
-      baseURL: "https://api.example.com/api/v3",
-      headers: () => ({ Authorization: "Bearer test" }),
-      fetch,
+      taskClient: taskClient as never,
     });
 
     const result = await files.uploadFile({
@@ -23,9 +17,10 @@ describe("WaveSpeedAIFiles", () => {
     });
 
     expect(result.providerReference).toEqual({ wavespeedai: "https://cdn.example/upload.png" });
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.example.com/api/v3/media/upload/binary",
-      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
-    );
+    expect(taskClient.uploadFile).toHaveBeenCalledWith({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: "image/png",
+      filename: "image.png",
+    });
   });
 });

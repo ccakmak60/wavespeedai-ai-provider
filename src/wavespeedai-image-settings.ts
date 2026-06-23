@@ -1,18 +1,1 @@
-export type WaveSpeedAIImageModelId =
-  | "bytedance/seedream-v4"
-  | "google/nano-banana-pro/text-to-image"
-  | "google/nano-banana/text-to-image"
-  | "alibaba/wan-2.5/text-to-image"
-  | "google/nano-banana-pro/text-to-image-ultra"
-  | "wavespeed-ai/qwen-image/text-to-image"
-  | "wavespeed-ai/flux-dev-lora"
-  | "wavespeed-ai/wan-2.2/text-to-image-realism"
-  | "wavespeed-ai/chroma"
-  | "wavespeed-ai/wan-2.2/text-to-image-lora"
-  | "wavespeed-ai/flux-dev"
-  | "google/nano-banana-pro/text-to-image-multi"
-  | "google/imagen4-ultra"
-  | "bytedance/seedream-v4/sequential"
-  | "wavespeed-ai/flux-1.1-pro-ultra"
-  | "wavespeed-ai/qwen-image/text-to-image-lora"
-  | (string & {});
+export type { WaveSpeedAIImageModelId } from "./generated/wavespeedai-models";

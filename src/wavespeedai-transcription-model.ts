@@ -24,16 +24,22 @@ export class WaveSpeedAITranscriptionModel implements TranscriptionModelV4 {
 
   async doGenerate(options: TranscriptionModelV4CallOptions): Promise<TranscriptionModelV4Result> {
     const providerOptions = getWaveSpeedAIProviderOptions(options.providerOptions);
-    const audio = providerOptions.audio;
-    if (typeof audio !== "string") {
-      throw new Error(
-        "WaveSpeedAI transcription requires providerOptions.wavespeedai.audio with an uploaded audio URL.",
-      );
-    }
+    const audio =
+      typeof providerOptions.audio === "string"
+        ? providerOptions.audio
+        : (
+            await this.config.taskClient.uploadFile({
+              data: options.audio,
+              mediaType: options.mediaType,
+              filename: "audio",
+              headers: options.headers,
+              abortSignal: options.abortSignal,
+            })
+          ).url;
 
     const prediction = await this.config.taskClient.run(
       this.modelId,
-      { audio, media_type: options.mediaType, ...providerOptions },
+      { audio, audio_url: audio, media_type: options.mediaType, ...providerOptions },
       { headers: options.headers, abortSignal: options.abortSignal, pollIntervalMs: 2_000 },
     );
 

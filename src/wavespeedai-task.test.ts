@@ -28,4 +28,29 @@ describe("WaveSpeed task client", () => {
     expect(result.outputs).toEqual(["https://cdn.example/out.png"]);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+
+  it("uploads files through the media endpoint", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: { url: "https://cdn.example/input.png" } }), { status: 200 }),
+      );
+    const client = createWaveSpeedAITaskClient({
+      baseURL: "https://api.example.com/api/v3",
+      headers: () => ({ Authorization: "Bearer test" }),
+      fetch,
+    });
+
+    const result = await client.uploadFile({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: "image/png",
+      filename: "input.png",
+    });
+
+    expect(result.url).toBe("https://cdn.example/input.png");
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.example.com/api/v3/media/upload/binary",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+  });
 });

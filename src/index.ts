@@ -13,7 +13,12 @@ export { WaveSpeedAIFiles } from "./wavespeedai-files";
 export { WaveSpeedAIImageModel } from "./wavespeedai-image-model";
 export { WaveSpeedAISpeechModel } from "./wavespeedai-speech-model";
 export { createWaveSpeedAITaskClient } from "./wavespeedai-task";
-export type { WaveSpeedAIPrediction, WaveSpeedAIRunOptions, WaveSpeedAITaskClient } from "./wavespeedai-task";
+export type {
+  WaveSpeedAIPrediction,
+  WaveSpeedAIRunOptions,
+  WaveSpeedAITaskClient,
+  WaveSpeedAIUploadOptions,
+} from "./wavespeedai-task";
 export { WaveSpeedAITranscriptionModel } from "./wavespeedai-transcription-model";
 export { WaveSpeedAIVideoModel } from "./wavespeedai-video-model";
 export { categorizeWaveSpeedAIModel } from "./wavespeedai-types";
