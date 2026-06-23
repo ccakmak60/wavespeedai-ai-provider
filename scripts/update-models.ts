@@ -37,7 +37,15 @@ const models = payload.data
   })
   .sort((a, b) => a.modelId.localeCompare(b.modelId));
 
-const source = `import type { WaveSpeedAIModelMetadata } from "../wavespeedai-types";\n\nexport const wavespeedaiModels = ${JSON.stringify(models, null, 2)} as const satisfies readonly WaveSpeedAIModelMetadata[];\n\ntype ModelIdByCategory<Category extends WaveSpeedAIModelMetadata["category"]> =\n  (typeof wavespeedaiModels)[number] extends infer Model\n    ? Model extends { category: Category; modelId: infer ModelId }\n      ? ModelId\n      : never\n    : never;\n\nexport type WaveSpeedAIModelId = (typeof wavespeedaiModels)[number]["modelId"] | (string & {});\nexport type WaveSpeedAIImageModelId = ModelIdByCategory<"image"> | (string & {});\nexport type WaveSpeedAIVideoModelId = ModelIdByCategory<"video"> | (string & {});\nexport type WaveSpeedAISpeechModelId = ModelIdByCategory<"speech"> | (string & {});\nexport type WaveSpeedAITranscriptionModelId = ModelIdByCategory<"transcription"> | (string & {});\nexport type WaveSpeedAILanguageModelId = string & {};\n`;
+const modelIds = models.map((model) => model.modelId);
+const modelIdsByCategory = {
+  image: models.filter((model) => model.category === "image").map((model) => model.modelId),
+  video: models.filter((model) => model.category === "video").map((model) => model.modelId),
+  speech: models.filter((model) => model.category === "speech").map((model) => model.modelId),
+  transcription: models.filter((model) => model.category === "transcription").map((model) => model.modelId),
+};
+
+const source = `import type { WaveSpeedAIModelMetadata } from "../wavespeedai-types";\n\nexport const wavespeedaiModels: readonly WaveSpeedAIModelMetadata[] = ${JSON.stringify(models, null, 2)};\n\nexport const wavespeedaiModelIds = ${JSON.stringify(modelIds, null, 2)} as const;\nexport const wavespeedaiImageModelIds = ${JSON.stringify(modelIdsByCategory.image, null, 2)} as const;\nexport const wavespeedaiVideoModelIds = ${JSON.stringify(modelIdsByCategory.video, null, 2)} as const;\nexport const wavespeedaiSpeechModelIds = ${JSON.stringify(modelIdsByCategory.speech, null, 2)} as const;\nexport const wavespeedaiTranscriptionModelIds = ${JSON.stringify(modelIdsByCategory.transcription, null, 2)} as const;\n\nexport type WaveSpeedAIModelId = (typeof wavespeedaiModelIds)[number] | (string & {});\nexport type WaveSpeedAIImageModelId = (typeof wavespeedaiImageModelIds)[number] | (string & {});\nexport type WaveSpeedAIVideoModelId = (typeof wavespeedaiVideoModelIds)[number] | (string & {});\nexport type WaveSpeedAISpeechModelId = (typeof wavespeedaiSpeechModelIds)[number] | (string & {});\nexport type WaveSpeedAITranscriptionModelId = (typeof wavespeedaiTranscriptionModelIds)[number] | (string & {});\nexport type WaveSpeedAILanguageModelId = string & {};\n`;
 
 await writeFile("src/generated/wavespeedai-models.ts", `${source}\n`);
 console.log(`Wrote ${models.length} WaveSpeed models.`);
