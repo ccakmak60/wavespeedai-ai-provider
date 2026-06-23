@@ -1,156 +1,49 @@
-import type { ImageModelV3, SharedV3Warning } from "@ai-sdk/provider";
-import type { Resolvable } from "@ai-sdk/provider-utils";
+import type { ImageModelV4, ImageModelV4CallOptions, ImageModelV4Result } from "@ai-sdk/provider";
+import type { WaveSpeedAIImageModelId } from "./generated/wavespeedai-models";
 import {
-  FetchFunction,
-  combineHeaders,
-  createBinaryResponseHandler,
-  createJsonResponseHandler,
-  getFromApi,
-  postJsonToApi,
-  resolve,
-} from "@ai-sdk/provider-utils";
-import { z } from "zod/v4";
-import { wavespeedaiFailedResponseHandler } from "./wavespeedai-error";
-import { WaveSpeedAIImageModelId } from "./wavespeedai-image-settings";
+  firstOutputUrl,
+  getWaveSpeedAIProviderOptions,
+  responseMetadata,
+  type WaveSpeedAIModelConfig,
+} from "./wavespeedai-media-model";
 
-interface WaveSpeedAIImageModelConfig {
-  provider: string;
-  baseURL: string;
-  headers?: Resolvable<Record<string, string | undefined>>;
-  fetch?: FetchFunction;
-  _internal?: {
-    currentDate?: () => Date;
-  };
-}
-
-export class WaveSpeedAIImageModel implements ImageModelV3 {
-  readonly specificationVersion = "v3";
+export class WaveSpeedAIImageModel implements ImageModelV4 {
+  readonly specificationVersion = "v4" as const;
   readonly maxImagesPerCall = 1;
 
-  get provider(): string {
+  get provider() {
     return this.config.provider;
   }
 
   constructor(
     readonly modelId: WaveSpeedAIImageModelId,
-    private readonly config: WaveSpeedAIImageModelConfig,
+    private readonly config: WaveSpeedAIModelConfig,
   ) {}
 
-  async doGenerate({
-    prompt,
-    n,
-    aspectRatio,
-    size,
-    seed,
-    providerOptions,
-    headers,
-    abortSignal,
-  }: Parameters<ImageModelV3["doGenerate"]>[0]): Promise<Awaited<ReturnType<ImageModelV3["doGenerate"]>>> {
-    const warnings: Array<SharedV3Warning> = [];
-
-    const currentDate = this.config._internal?.currentDate?.() ?? new Date();
-
-    const { value: valueCreateImage, responseHeaders } = await postJsonToApi({
-      url: `${this.config.baseURL}/${this.modelId}`,
-      headers: combineHeaders(await resolve(this.config.headers), headers, {
-        prefer: "wait",
-      }),
-
-      body: {
-        prompt,
-        aspect_ratio: aspectRatio,
-        size,
-        seed,
-        num_outputs: n,
-        ...(providerOptions.wavespeedai ?? {}),
+  async doGenerate(options: ImageModelV4CallOptions): Promise<ImageModelV4Result> {
+    const prediction = await this.config.taskClient.run(
+      this.modelId,
+      {
+        prompt: options.prompt,
+        size: options.size?.replace("x", "*"),
+        aspect_ratio: options.aspectRatio,
+        seed: options.seed,
+        num_images: options.n,
+        ...getWaveSpeedAIProviderOptions(options.providerOptions),
       },
-
-      successfulResponseHandler: createJsonResponseHandler(wavespeedaiPredictResponseSchema),
-      failedResponseHandler: wavespeedaiFailedResponseHandler,
-      abortSignal,
-      fetch: this.config.fetch,
-    });
-
-    let output: null | string | string[] = null;
-
-    while (true) {
-      const { value } = await getFromApi({
-        url: `${this.config.baseURL}/predictions/${valueCreateImage.data.id}/result`,
-        headers: combineHeaders(await resolve(this.config.headers), headers, {
-          prefer: "wait",
-        }),
-        successfulResponseHandler: createJsonResponseHandler(wavespeedaiImageResponseSchema),
-        failedResponseHandler: wavespeedaiFailedResponseHandler,
-        abortSignal,
-        fetch: this.config.fetch,
-      });
-
-      const data = value.data;
-      const status = data.status;
-
-      if (status === "completed") {
-        output = data.outputs;
-        break;
-      } else if (status === "failed") {
-        console.error("Task failed:", data.error);
-        break;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 0.1 * 1000));
-    }
-
-    if (output === null) {
-      throw new Error("Image generation failed or was not completed.");
-    }
-
-    // download the images:
-    const outputArray = Array.isArray(output) ? output : [output];
-    const images = await Promise.all(
-      outputArray.map(async (url) => {
-        const { value: image } = await getFromApi({
-          url,
-          successfulResponseHandler: createBinaryResponseHandler(),
-          failedResponseHandler: wavespeedaiFailedResponseHandler,
-          abortSignal,
-          fetch: this.config.fetch,
-        });
-        return image;
-      }),
+      { headers: options.headers, abortSignal: options.abortSignal, pollIntervalMs: 2_000 },
     );
+
+    const images = await Promise.all(
+      prediction.outputs.map((url) => this.config.taskClient.download(url, { abortSignal: options.abortSignal })),
+    );
+
+    firstOutputUrl(prediction.outputs, this.modelId);
 
     return {
       images,
-      warnings,
-      response: {
-        timestamp: currentDate,
-        modelId: this.modelId,
-        headers: responseHeaders,
-      },
+      warnings: [],
+      response: responseMetadata(this.modelId, this.config.currentDate),
     };
   }
 }
-
-const wavespeedaiPredictResponseSchema = z.object({
-  data: z.object({
-    id: z.string(),
-  }),
-});
-
-const wavespeedaiImageResponseSchema = z.object({
-  code: z.number(),
-  message: z.string(),
-  data: z.object({
-    id: z.string(),
-    model: z.string(),
-    outputs: z.union([z.array(z.string()), z.string()]),
-    urls: z.object({
-      get: z.string(),
-    }),
-    has_nsfw_contents: z.array(z.boolean()),
-    status: z.enum(["created", "completed", "failed", "processing"]),
-    created_at: z.string(),
-    error: z.string().optional(),
-    executionTime: z.number().optional(),
-    timings: z.object({ inference: z.number().optional() }).optional(),
-  }),
-});
