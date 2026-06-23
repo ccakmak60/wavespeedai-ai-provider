@@ -5,10 +5,12 @@ import type {
 } from "@ai-sdk/provider";
 import type { WaveSpeedAIVideoModelId } from "./generated/wavespeedai-models";
 import {
+  fileToUrl,
   getWaveSpeedAIProviderOptions,
+  inferMediaType,
   responseMetadata,
-  unsupported,
   type WaveSpeedAIModelConfig,
+  withoutUndefined,
 } from "./wavespeedai-media-model";
 
 export class WaveSpeedAIVideoModel implements VideoModelV4 {
@@ -25,34 +27,35 @@ export class WaveSpeedAIVideoModel implements VideoModelV4 {
   ) {}
 
   async doGenerate(options: VideoModelV4CallOptions): Promise<VideoModelV4Result> {
-    const warnings = [];
     const providerOptions = getWaveSpeedAIProviderOptions(options.providerOptions);
-
-    if (options.image?.type === "file") {
-      warnings.push(
-        unsupported("binary image input", "Upload files first and pass the URL as providerOptions.wavespeedai.image."),
-      );
-    }
+    const inputUrl = await fileToUrl(options.image, this.config, {
+      headers: options.headers,
+      abortSignal: options.abortSignal,
+      filename: "video-input",
+    });
 
     const prediction = await this.config.taskClient.run(
       this.modelId,
-      {
+      withoutUndefined({
         prompt: options.prompt,
         aspect_ratio: options.aspectRatio,
         resolution: options.resolution,
         duration: options.duration,
         fps: options.fps,
         seed: options.seed,
-        image: options.image?.type === "url" ? options.image.url : undefined,
+        image: inputUrl,
+        image_url: inputUrl,
+        video: inputUrl,
+        video_url: inputUrl,
         num_videos: options.n,
         ...providerOptions,
-      },
+      }),
       { headers: options.headers, abortSignal: options.abortSignal, pollIntervalMs: 5_000 },
     );
 
     return {
-      videos: prediction.outputs.map((url) => ({ type: "url", url, mediaType: "video/mp4" })),
-      warnings,
+      videos: prediction.outputs.map((url) => ({ type: "url", url, mediaType: inferMediaType(url, "video/mp4") })),
+      warnings: [],
       response: responseMetadata(this.modelId, this.config.currentDate),
     };
   }

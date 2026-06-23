@@ -65,6 +65,26 @@ const prediction = await wavespeedai.run("wavespeed-ai/infinitetalk", {
 
 Use `providerOptions.wavespeedai` for model-specific request fields from WaveSpeed's model docs.
 
+`imageModel`, `videoModel`, and `transcriptionModel` upload binary AI SDK file inputs automatically. Use `uploadFile` only when you want to upload once and reuse the returned provider reference:
+
+```ts
+import { uploadFile } from "ai";
+
+const { providerReference } = await uploadFile({
+  api: registry.files("wavespeedai"),
+  data: audioBytes,
+  mediaType: "audio/wav",
+  filename: "voice.wav",
+});
+```
+
+For unsupported AI SDK-native categories, call the task API directly:
+
+```ts
+const submitted = await wavespeedai.submit("some/model", input);
+const result = await wavespeedai.wait(submitted.id);
+```
+
 ## Refresh model catalog
 
 ```bash

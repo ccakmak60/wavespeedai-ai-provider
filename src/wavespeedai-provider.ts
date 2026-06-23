@@ -27,6 +27,7 @@ import {
   createWaveSpeedAITaskClient,
   type WaveSpeedAIPrediction,
   type WaveSpeedAIRunOptions,
+  type WaveSpeedAIUploadOptions,
 } from "./wavespeedai-task";
 import { WaveSpeedAITranscriptionModel } from "./wavespeedai-transcription-model";
 import { WaveSpeedAIVideoModel } from "./wavespeedai-video-model";
@@ -63,6 +64,14 @@ export interface WaveSpeedAIProvider extends ProviderV4 {
     input: Record<string, unknown>,
     options?: WaveSpeedAIRunOptions,
   ): Promise<WaveSpeedAIPrediction>;
+  submit(
+    modelId: WaveSpeedAIModelId,
+    input: Record<string, unknown>,
+    options?: WaveSpeedAIRunOptions,
+  ): Promise<WaveSpeedAIPrediction>;
+  get(taskId: string, options?: WaveSpeedAIRunOptions): Promise<WaveSpeedAIPrediction>;
+  wait(taskId: string, options?: WaveSpeedAIRunOptions): Promise<WaveSpeedAIPrediction>;
+  uploadFile(options: WaveSpeedAIUploadOptions): Promise<{ url: string; response: unknown }>;
 }
 
 export function createWaveSpeedAI(options: WaveSpeedAIProviderSettings = {}): WaveSpeedAIProvider {
@@ -94,6 +103,15 @@ export function createWaveSpeedAI(options: WaveSpeedAIProviderSettings = {}): Wa
   });
 
   const modelConfig = { provider: "wavespeedai", taskClient, currentDate: options._internal?.currentDate };
+  let llmProvider: ReturnType<typeof createOpenAICompatible> | undefined;
+  const getLLMProvider = () =>
+    (llmProvider ??= createOpenAICompatible({
+      name: "wavespeedai",
+      apiKey: getApiKey(),
+      baseURL: llmBaseURL,
+      fetch: options.fetch,
+      headers: options.headers,
+    }));
 
   const noSuchModel = (modelId: string, modelType: ConstructorParameters<typeof NoSuchModelError>[0]["modelType"]) => {
     throw new NoSuchModelError({ modelId, modelType });
@@ -102,15 +120,9 @@ export function createWaveSpeedAI(options: WaveSpeedAIProviderSettings = {}): Wa
   const provider = {
     specificationVersion: "v4" as const,
     languageModel(modelId: WaveSpeedAILanguageModelId) {
-      return createOpenAICompatible({
-        name: "wavespeedai",
-        apiKey: getApiKey(),
-        baseURL: llmBaseURL,
-        fetch: options.fetch,
-        headers: options.headers,
-      }).languageModel(modelId);
+      return getLLMProvider().languageModel(modelId);
     },
-    embeddingModel: (modelId: string) => noSuchModel(modelId, "embeddingModel"),
+    embeddingModel: (modelId: string) => getLLMProvider().embeddingModel(modelId),
     image: (modelId: WaveSpeedAIImageModelId) => new WaveSpeedAIImageModel(modelId, modelConfig),
     imageModel: (modelId: WaveSpeedAIImageModelId) => new WaveSpeedAIImageModel(modelId, modelConfig),
     videoModel: (modelId: WaveSpeedAIVideoModelId) => new WaveSpeedAIVideoModel(modelId, modelConfig),
@@ -118,9 +130,14 @@ export function createWaveSpeedAI(options: WaveSpeedAIProviderSettings = {}): Wa
     transcriptionModel: (modelId: WaveSpeedAITranscriptionModelId) =>
       new WaveSpeedAITranscriptionModel(modelId, modelConfig),
     rerankingModel: (modelId: string) => noSuchModel(modelId, "rerankingModel"),
-    files: () => new WaveSpeedAIFiles({ provider: "wavespeedai", baseURL, headers: getHeaders, fetch: options.fetch }),
+    files: () => new WaveSpeedAIFiles({ provider: "wavespeedai", taskClient }),
     run: (modelId: WaveSpeedAIModelId, input: Record<string, unknown>, runOptions?: WaveSpeedAIRunOptions) =>
       taskClient.run(modelId, input, runOptions),
+    submit: (modelId: WaveSpeedAIModelId, input: Record<string, unknown>, runOptions?: WaveSpeedAIRunOptions) =>
+      taskClient.submit(modelId, input, runOptions),
+    get: (taskId: string, runOptions?: WaveSpeedAIRunOptions) => taskClient.get(taskId, runOptions),
+    wait: (taskId: string, runOptions?: WaveSpeedAIRunOptions) => taskClient.wait(taskId, runOptions),
+    uploadFile: (uploadOptions: WaveSpeedAIUploadOptions) => taskClient.uploadFile(uploadOptions),
   } satisfies WaveSpeedAIProvider;
 
   return provider;

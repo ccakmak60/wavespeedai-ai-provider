@@ -15,6 +15,14 @@ export interface WaveSpeedAIRunOptions {
   timeoutMs?: number;
 }
 
+export interface WaveSpeedAIUploadOptions {
+  data: string | Uint8Array;
+  mediaType: string;
+  filename?: string;
+  headers?: Record<string, string | undefined>;
+  abortSignal?: AbortSignal;
+}
+
 export interface WaveSpeedAIPrediction {
   id: string;
   status: string;
@@ -30,6 +38,24 @@ async function defaultSleep(ms: number) {
 
 function definedHeaders(headers: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => entry[1] != null));
+}
+
+function bytesFromData(data: string | Uint8Array) {
+  if (typeof data !== "string") return data;
+  return Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+}
+
+function blobPart(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function readUploadUrl(value: unknown) {
+  const data = ((value as { data?: Record<string, unknown> }).data ?? value) as Record<string, unknown>;
+  const url = [data.url, data.file_url, data.download_url, data.uri].find(
+    (candidate): candidate is string => typeof candidate === "string",
+  );
+  if (!url) throw new Error("WaveSpeedAI file upload response did not include a URL.");
+  return url;
 }
 
 export function createWaveSpeedAITaskClient(config: WaveSpeedAITaskClientConfig) {
@@ -63,45 +89,80 @@ export function createWaveSpeedAITaskClient(config: WaveSpeedAITaskClientConfig)
     };
   }
 
-  return {
-    async run(modelId: string, input: Record<string, unknown>, options: WaveSpeedAIRunOptions = {}) {
-      const startedAt = Date.now();
-      const pollIntervalMs = options.pollIntervalMs ?? 2_000;
-      const maxPollIntervalMs = options.maxPollIntervalMs ?? 30_000;
-      const timeoutMs = options.timeoutMs ?? 300_000;
+  async function submit(modelId: string, input: Record<string, unknown>, options: WaveSpeedAIRunOptions = {}) {
+    const submitResponse = await requestJson(`${config.baseURL}/${modelId}`, {
+      method: "POST",
+      headers: definedHeaders({
+        "Content-Type": "application/json",
+        ...config.headers(),
+        ...options.headers,
+      }),
+      body: JSON.stringify(input),
+      signal: options.abortSignal,
+    });
 
-      const submit = await requestJson(`${config.baseURL}/${modelId}`, {
-        method: "POST",
-        headers: definedHeaders({
-          "Content-Type": "application/json",
-          ...config.headers(),
-          ...options.headers,
-        }),
-        body: JSON.stringify(input),
-        signal: options.abortSignal,
-      });
+    return readPrediction(submitResponse.value);
+  }
 
-      const taskId = readPrediction(submit.value).id;
-      let waitMs = pollIntervalMs;
+  async function get(taskId: string, options: WaveSpeedAIRunOptions = {}) {
+    const result = await requestJson(`${config.baseURL}/predictions/${taskId}`, {
+      method: "GET",
+      headers: definedHeaders({ ...config.headers(), ...options.headers }),
+      signal: options.abortSignal,
+    });
 
-      while (Date.now() - startedAt < timeoutMs) {
-        const result = await requestJson(`${config.baseURL}/predictions/${taskId}`, {
-          method: "GET",
-          headers: definedHeaders({ ...config.headers(), ...options.headers }),
-          signal: options.abortSignal,
-        });
+    return readPrediction(result.value);
+  }
 
-        const prediction = readPrediction(result.value);
-        if (prediction.status === "completed") return prediction;
-        if (prediction.status === "failed") {
-          throw new Error(`WaveSpeedAI prediction ${taskId} failed: ${prediction.error ?? "unknown error"}`);
-        }
+  async function wait(taskId: string, options: WaveSpeedAIRunOptions = {}) {
+    const startedAt = Date.now();
+    let waitMs = options.pollIntervalMs ?? 2_000;
+    const maxPollIntervalMs = options.maxPollIntervalMs ?? 30_000;
+    const timeoutMs = options.timeoutMs ?? 300_000;
 
-        await sleep(waitMs);
-        waitMs = Math.min(maxPollIntervalMs, Math.ceil(waitMs * 1.5));
+    while (Date.now() - startedAt < timeoutMs) {
+      const prediction = await get(taskId, options);
+      if (prediction.status === "completed") return prediction;
+      if (["failed", "error", "canceled", "cancelled"].includes(prediction.status)) {
+        throw new Error(`WaveSpeedAI prediction ${taskId} failed: ${prediction.error ?? "unknown error"}`);
       }
 
-      throw new Error(`WaveSpeedAI prediction ${taskId} timed out after ${timeoutMs}ms.`);
+      await sleep(waitMs);
+      waitMs = Math.min(maxPollIntervalMs, Math.ceil(waitMs * 1.5));
+    }
+
+    throw new Error(`WaveSpeedAI prediction ${taskId} timed out after ${timeoutMs}ms.`);
+  }
+
+  async function run(modelId: string, input: Record<string, unknown>, options: WaveSpeedAIRunOptions = {}) {
+    const submitted = await submit(modelId, input, options);
+    return wait(submitted.id, options);
+  }
+
+  return {
+    submit,
+    get,
+    wait,
+    run,
+    async uploadFile(options: WaveSpeedAIUploadOptions) {
+      const bytes = bytesFromData(options.data);
+      const formData = new FormData();
+      formData.append("file", new Blob([blobPart(bytes)], { type: options.mediaType }), options.filename ?? "file");
+
+      const response = await fetchImplementation(`${config.baseURL}/media/upload/binary`, {
+        method: "POST",
+        headers: definedHeaders({ ...config.headers(), ...options.headers }),
+        body: formData,
+        signal: options.abortSignal,
+      });
+      const text = await response.text();
+      const value = text ? JSON.parse(text) : undefined;
+
+      if (!response.ok) {
+        throw new Error(`WaveSpeedAI file upload failed: ${response.status} ${text}`);
+      }
+
+      return { url: readUploadUrl(value), response: value };
     },
 
     async download(url: string, options: { abortSignal?: AbortSignal } = {}) {
